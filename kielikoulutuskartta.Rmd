@@ -1,0 +1,328 @@
+---
+title: "SOLKI-kielikoulutuskartta"
+author: "Matti Lassila"
+date: "12/18/2017"
+output: html_document
+---
+
+```{r setup, echo = FALSE, message=FALSE,warning=FALSE}
+
+library(gisfin)
+library(rgdal)
+library(rgeos)
+library(raster)
+library(data.table)
+library(dplyr)
+
+
+geocode_places <- function(name) {
+  Sys.sleep(2)
+  coords<-get_geocode(paste0("&city=",name), service="openstreetmap", raw_query=T)
+  coded_place <- data.frame(name=name,lat=coords$lat,lon=coords$lon)
+  return(coded_place)
+}
+
+```
+
+```{r load-and-prepare-data, echo=FALSE, error=FALSE, warning=FALSE, cache=TRUE}
+
+# Load data
+
+finland <- readOGR("/Users/majulass/Documents/2017/finnish-geodata/kml/Suuralueet.kml",verbose = FALSE)
+
+kartta_1a <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-1a.csv")
+kartta_1b <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-1b.csv")
+kartta_2 <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-2.csv")
+kartta_3 <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-3.csv")
+kartta_4 <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-4.csv")
+kartta_5 <- fread("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/kartta-5.csv")
+
+placenames <- unique(c(kartta_1a$name,kartta_1b$name,kartta_2$name,kartta_3$name,kartta_4$name,kartta_5$name))
+colours_7 <- c('#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f')
+
+palette(colours_7)
+
+# places_with_coords <- lapply(placenames,geocode_places)
+# places_with_coords <- rbindlist(places_with_coords)
+# saveRDS(places_with_coords,file="/Users/majulass/Documents/2017/solki-kielikoulutuskartta/places_with_coords.Rds")
+places_with_coords <- readRDS("/Users/majulass/Documents/2017/solki-kielikoulutuskartta/places_with_coords.Rds")
+places_with_coords$colour <- 'yellow'
+## Data preparation
+
+kartta_1a <- kartta_1a %>% left_join(places_with_coords,by = "name")
+kartta_1b <- kartta_1b %>% left_join(places_with_coords,by = "name")
+kartta_2 <- kartta_2 %>% left_join(places_with_coords,by = "name")
+kartta_3 <- kartta_3 %>% left_join(places_with_coords,by = "name")
+kartta_4 <- kartta_4 %>% left_join(places_with_coords,by = "name")
+kartta_5 <- kartta_5 %>% left_join(places_with_coords,by = "name")
+
+kartta_1a[kartta_1a$activity == "Kaikkia kolmea",]$colour <- '#984ea3'
+kartta_1a[kartta_1a$activity == "Kaikkia kolmea",]$activity <- 'Kotimaisten kielten kielikylpyä, muuta laajamittaista ja suppeampaa'
+kartta_1a[kartta_1a$activity == "Kotimaisten kielten kielikylpyä ja muuta laajamittaista",]$colour <- '#fdbf6f'
+kartta_1a[kartta_1a$activity == "Kotimaisten kielten kielikylpyä ja suppeampaa",]$colour <- '#e41a1c'
+kartta_1a[kartta_1a$activity == "Muuta laajamittaista ja suppeampaa",]$colour <- '#fb9a99'
+kartta_1a[kartta_1a$activity == "Vain kotimaisten kielten kielikylpyä",]$colour <- '#33a02c'
+kartta_1a[kartta_1a$activity == "Vain muuta laajamittaista",]$colour <- '#a6cee3'
+kartta_1a[kartta_1a$activity == "Vain suppeampaa",]$colour <- '#b2df8a'
+
+
+
+kartta_1a$swe_activity <- 'Nej'
+
+kartta_1a[kartta_1a$activity == "Kotimaisten kielten kielikylpyä, muuta laajamittaista ja suppeampaa",]$swe_activity <- 'Alla tre'
+kartta_1a[kartta_1a$activity == "Kotimaisten kielten kielikylpyä ja muuta laajamittaista",]$swe_activity <- 'Språkbad i de inhemska språken och annan omfattande undervisning på två språk'
+kartta_1a[kartta_1a$activity == "Kotimaisten kielten kielikylpyä ja suppeampaa",]$swe_activity <- "Språkbad i de inhemska språken och mindre omfattande undervisning på två språk"
+kartta_1a[kartta_1a$activity == "Muuta laajamittaista ja suppeampaa",]$swe_activity <- "Annan omfattande och mindre omfattande undervisning på två språk"
+kartta_1a[kartta_1a$activity == "Vain kotimaisten kielten kielikylpyä",]$swe_activity <- 'Endast språkbad i de inhemska språken'
+kartta_1a[kartta_1a$activity == "Vain muuta laajamittaista",]$swe_activity <- 'Endast annan omfattande undervisning på två språk'
+kartta_1a[kartta_1a$activity == "Vain suppeampaa",]$swe_activity <- 'Endast mindre omfattande undervisning på två språk'
+
+
+# 1. Vain kotimaisten kielten kielikylpyä #33a02c
+# 2. Vain muuta laajamittaista #a6cee3
+# 3. Vain suppeampaa #b2df8a
+# 4. Kotimaisten kielten kielikylpyä ja muuta laajamittaista #d95f02
+# 5. Kotimaisten kielten kielikylpyä ja suppeampaa #e41a1c
+# 6. Muuta laajamittaista ja suppeampaa #fbb4ae
+# 7.  Kaikkia kolmea #984ea3
+
+
+
+kartta_1a_legend <- c(
+  "Vain kotimaisten kielten kielikylpyä",
+  "Vain muuta laajamittaista",
+  "Vain suppeampaa",
+  "Kotimaisten kielten kielikylpyä ja muuta laajamittaista",
+  "Kotimaisten kielten kielikylpyä ja suppeampaa",
+  "Muuta laajamittaista ja suppeampaa",
+  "Kaikkia kolmea"
+  )
+kartta_1a_legend_swe <- c(
+  "Endast språkbad i de inhemska språken",
+  "Endast annan omfattande undervisning på två språk",
+  "Endast mindre omfattande undervisning på två språk",
+  "Språkbad i de inhemska språken och annan omfattande undervisning på två språk",
+  "Språkbad i de inhemska språken och mindre omfattande undervisning på två språk",
+  "Annan omfattande och mindre omfattande undervisning på två språk",
+  "Alla tre"
+)
+kartta_1a_colours <- c(
+  '#33a02c',
+  '#a6cee3',
+  '#b2df8a',
+  '#fdbf6f',
+  '#e41a1c',
+  '#fb9a99',
+  '#984ea3'
+  
+)
+
+kartta_2$swe_activity <- 'Nej'
+
+kartta_2[kartta_2$activity == "ruotsi",]$colour <- "#33a02c"
+kartta_2[kartta_2$activity == "suomi",]$colour <- "#1f78b4"
+kartta_2[kartta_2$activity == "saame",]$colour <- "#e41a1c"
+kartta_2[kartta_2$activity == "suomi ja ruotsi",]$colour <- "#984ea3"
+
+kartta_2[kartta_2$activity == "ruotsi",]$swe_activity <- "Svenska"
+kartta_2[kartta_2$activity == "suomi",]$swe_activity <- "Finska"
+kartta_2[kartta_2$activity == "saame",]$swe_activity <- "Samiska"
+kartta_2[kartta_2$activity == "suomi ja ruotsi",]$swe_activity <- "Finska och svenska"
+
+
+
+kartta_5[kartta_5$activity=="Molemmat",]$colour <- "#1f78b4"
+kartta_5[kartta_5$activity=="Vain suppeampi",]$colour <- '#b2df8a'
+kartta_5[kartta_5$activity=="Vain muu laajamittainen",]$colour <- '#a6cee3'
+
+
+kartta_3[kartta_3$activity=="Sekä muuta laajamittaista että suppeampaa kaksikielistä toimintaa",]$colour <- "#1f78b4"
+kartta_3[kartta_3$activity=="Suppeampaa kaksikielistä toimintaa",]$colour <- '#b2df8a'
+kartta_3[kartta_3$activity=="Muuta laajamittaista kaksikielistä toimintaa",]$colour <- '#a6cee3'
+
+kartta_3[kartta_3$activity=="Sekä muuta laajamittaista että suppeampaa kaksikielistä toimintaa",]$activity <- "Molempia"
+kartta_3[kartta_3$activity=="Suppeampaa kaksikielistä toimintaa",]$activity <- 'Vain suppeampaa'
+kartta_3[kartta_3$activity=="Muuta laajamittaista kaksikielistä toimintaa",]$activity <- 'Vain muuta laajamittaista'
+
+kartta_4$colour <- '#33a02c'
+kartta_4$activity <- 'Kotimaisten kielten kielikylpy'
+
+kartta_4$swe_activity <- 'Nej'
+kartta_4[kartta_4$activity == 'Kotimaisten kielten kielikylpy',]$swe_activity <- "Språkbad i de inhemska språken"
+
+kartta_1a$activity <- as.factor(kartta_1a$activity)
+kartta_1b$activity <- as.factor(kartta_1b$activity)
+kartta_2$activity <- as.factor(kartta_2$activity)
+kartta_3$activity <- as.factor(kartta_3$activity)
+kartta_4$activity <- as.factor(kartta_4$activity)
+kartta_5$activity <- as.factor(kartta_5$activity)
+
+kartta_1a$swe_activity <- as.factor(kartta_1a$swe_activity)
+kartta_2$swe_activity <- as.factor(kartta_2$swe_activity)
+kartta_4$swe_activity <- as.factor(kartta_4$swe_activity)
+
+```
+
+
+
+
+```{r map-1a, echo=FALSE, fig.width=11, fig.height=9 , cache=TRUE}
+palette(colours_7)
+plot(finland)
+
+points(
+  kartta_1a$lon,
+  kartta_1a$lat,
+  col = kartta_1a$colour,
+  bg = kartta_1a$colour,
+  pch = 25,
+  cex = 2
+)
+
+legend("topright",inset=c(-0.04,-0.01),legend=kartta_1a_legend, pch=16, col=kartta_1a_colours,xpd=TRUE)
+
+par(pin=c(4,4),mar=c(1,2,1,2))
+
+```
+
+```{r map-1a-swe, echo=FALSE, fig.width=12, fig.height=12 }
+palette(colours_7)
+par(pin=c(5,5),mar=c(10,0,0,0), oma=c(5,0,0,0))
+plot(finland)
+the_plot_extent <- extent(finland)
+furthest_pt_east <- the_plot_extent@xmin
+furthest_pt_north <- the_plot_extent@ymin
+points(
+  kartta_1a$lon,
+  kartta_1a$lat,
+  col = kartta_1a$colour,
+  bg = kartta_1a$colour,
+  pch = 25,
+  cex = 3
+)
+
+legend(x = furthest_pt_east, y = furthest_pt_north-0.30,legend=kartta_1a_legend_swe, pch=16, col=kartta_1a_colours,xpd=TRUE,cex=1.2)
+
+
+
+```
+
+
+```{r map-2, echo=FALSE, echo=FALSE, fig.width=11, fig.height=9, cache=TRUE }
+
+plot(finland)
+
+points(
+  kartta_2$lon,
+  kartta_2$lat,
+  col = kartta_2$colour,
+  bg = kartta_2$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.23,0.11),legend=unique(kartta_2$activity), pch=16, col=unique(kartta_2$colour))
+
+par(pin=c(5,5),mar=c(1,1,1,1))
+
+
+```
+
+
+```{r map-2-swe, echo=FALSE, echo=FALSE, fig.width=11, fig.height=9 }
+
+plot(finland)
+
+points(
+  kartta_2$lon,
+  kartta_2$lat,
+  col = kartta_2$colour,
+  bg = kartta_2$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.20,0.11),legend=unique(kartta_2$swe_activity), pch=16, col=unique(kartta_2$colour))
+
+par(pin=c(5,5),mar=c(1,1,1,1))
+
+```
+
+
+```{r map-3, echo=FALSE, echo=FALSE, fig.width=13, fig.height=11, cache=TRUE}
+palette(colours_7)
+plot(finland)
+
+points(
+  kartta_3$lon,
+  kartta_3$lat,
+  col = kartta_3$colour,
+  bg = kartta_3$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.20,0.11),legend=unique(kartta_3$activity), pch=16, col=unique(kartta_3$colour))
+
+par(pin=c(5,5),mar=c(3,1,1,1))
+
+
+```
+
+```{r map-4, echo=FALSE, echo=FALSE, fig.width=13, fig.height=11, cache=TRUE}
+
+plot(finland)
+
+points(
+  kartta_4$lon,
+  kartta_4$lat,
+  col = kartta_4$colour,
+  bg = kartta_4$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.165,0.07),legend=unique(kartta_4$activity), pch=16, col=unique(kartta_4$colour))
+
+par(pin=c(5,5),mar=c(1,1,1,1))
+
+
+```
+
+
+
+```{r map-4-swe, echo=FALSE, echo=FALSE, fig.width=13, fig.height=11 }
+
+plot(finland)
+
+points(
+  kartta_4$lon,
+  kartta_4$lat,
+  col = kartta_4$colour,
+  bg = kartta_4$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.155,0.08),legend=unique(kartta_4$swe_activity), pch=16, col=unique(kartta_4$colour))
+
+par(pin=c(5,5),mar=c(1,1,1,1))
+
+
+```
+
+
+```{r map-5, echo=FALSE, echo=FALSE, fig.width=13, fig.height=11 }
+palette(colours_7)
+plot(finland)
+
+points(
+  kartta_5$lon,
+  kartta_5$lat,
+  col = kartta_5$colour,
+  bg = kartta_5$colour,
+  pch = 25,
+  cex = 2
+)
+legend("topright",inset=c(0.21,0.07),legend=unique(kartta_5$activity), pch=16, col=unique(kartta_5$colour))
+
+par(pin=c(5,5),mar=c(1,1,1,1))
+
+
+```
+
